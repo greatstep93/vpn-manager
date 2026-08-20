@@ -24,7 +24,7 @@ import java.util.prefs.Preferences;
 
 public class MainApp extends Application {
 
-    private static final String PREFS_NODE = "vpnmanager";
+    private static final String PREFS_NODE = "vpnmanager.svg";
     private static final String KEY_HOST = "host";
     private static final String KEY_PORT = "port";
     private static final String KEY_USERNAME = "username";
