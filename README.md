@@ -32,3 +32,6 @@
 Написана на Java, UI на JavaFX
 
 Проверена и работает, написана при поддержке DeepSeek поэтому рефакторинг буду производить в следующих версиях при необходимости. 
+
+<img width="992" height="698" alt="image" src="https://github.com/user-attachments/assets/74ef1043-3f4d-4ad0-be9a-3a82cd056441" />
+
