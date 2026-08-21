@@ -9,6 +9,7 @@ import javafx.scene.control.*;
 import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
 import javafx.stage.Stage;
+import javafx.stage.WindowEvent;
 import ru.greatstep.vpnmanager.config.models.VpnConfig;
 import ru.greatstep.vpnmanager.config.models.VpnDomain;
 import ru.greatstep.vpnmanager.config.models.VpnIpEntry;
@@ -20,11 +21,14 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.prefs.Preferences;
 
 public class MainApp extends Application {
 
-    private static final String PREFS_NODE = "vpnmanager.svg";
+    private static final String PREFS_NODE = "vpnmanager";
     private static final String KEY_HOST = "host";
     private static final String KEY_PORT = "port";
     private static final String KEY_USERNAME = "username";
@@ -66,6 +70,9 @@ public class MainApp extends Application {
 
     private boolean logsVisible = false;
 
+    // Пул потоков для фоновых задач
+    private final ExecutorService executor = Executors.newCachedThreadPool();
+
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
 
     @Override
@@ -74,20 +81,16 @@ public class MainApp extends Application {
         primaryStage.setMinWidth(1000);
         primaryStage.setMinHeight(700);
 
+        // Обработчик закрытия окна
+        primaryStage.setOnCloseRequest(this::handleCloseRequest);
+
         // Main layout
         BorderPane root = new BorderPane();
         root.setPadding(new Insets(10));
 
-        // Сначала создаем все компоненты
         initializeComponents();
-
-        // Top: Connection panel
         root.setTop(createConnectionPanel());
-
-        // Center: Three lists
         root.setCenter(createListsPanel());
-
-        // Bottom: Status and logs
         root.setBottom(createBottomPanel());
 
         Scene scene = new Scene(root);
@@ -95,13 +98,58 @@ public class MainApp extends Application {
         primaryStage.show();
 
         addLog("Application started");
-
-        // Загружаем сохраненные данные
         loadSavedCredentials();
     }
 
+    private void handleCloseRequest(WindowEvent event) {
+        addLog("Shutting down...");
+
+        // Отключаем SSH если подключены
+        if (sshClient != null && sshClient.isConnected()) {
+            addLog("Disconnecting SSH...");
+            try {
+                sshClient.close();
+                addLog("SSH disconnected");
+            } catch (Exception e) {
+                addLog("Error disconnecting SSH: " + e.getMessage());
+            }
+        }
+
+        // Завершаем пул потоков
+        executor.shutdownNow();
+        try {
+            if (!executor.awaitTermination(2, TimeUnit.SECONDS)) {
+                addLog("Force shutting down executor...");
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+
+        addLog("Application closed");
+        Platform.exit();
+    }
+
+    @Override
+    public void stop() {
+        addLog("Stopping application...");
+        if (sshClient != null && sshClient.isConnected()) {
+            try {
+                sshClient.close();
+            } catch (Exception e) {
+                // ignore
+            }
+        }
+        executor.shutdownNow();
+        try {
+            executor.awaitTermination(3, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
     private void initializeComponents() {
-        // Initialize all buttons to avoid NullPointerException
         addDomainButton = new Button("Add Domain");
         removeDomainButton = new Button("Remove Domain");
         addIpButton = new Button("Add IP");
@@ -110,7 +158,6 @@ public class MainApp extends Application {
         applyButton = new Button("Apply Changes");
         toggleLogsButton = new Button("▶ Show Logs");
 
-        // Initially disabled
         addDomainButton.setDisable(true);
         removeDomainButton.setDisable(true);
         addIpButton.setDisable(true);
@@ -142,7 +189,6 @@ public class MainApp extends Application {
 
                 addLog("Saved credentials loaded");
             } else {
-                // Загружаем только хост и порт если пароль не сохранен
                 String host = prefs.get(KEY_HOST, "");
                 String port = prefs.get(KEY_PORT, "22");
                 String username = prefs.get(KEY_USERNAME, "root");
@@ -174,7 +220,6 @@ public class MainApp extends Application {
                 prefs.put(KEY_PASSWORD, passwordField.getText());
                 addLog("Credentials saved");
             } else {
-                // Очищаем сохраненные данные
                 prefs.remove(KEY_HOST);
                 prefs.remove(KEY_PORT);
                 prefs.remove(KEY_USERNAME);
@@ -191,7 +236,6 @@ public class MainApp extends Application {
         panel.setPadding(new Insets(10));
         panel.setStyle("-fx-border-color: #cccccc; -fx-border-width: 1; -fx-border-radius: 5;");
 
-        // Connection fields
         GridPane grid = new GridPane();
         grid.setHgap(10);
         grid.setVgap(10);
@@ -209,7 +253,6 @@ public class MainApp extends Application {
         usernameField.setPrefWidth(150);
         usernameField.setPromptText("root");
 
-        // Password field with show/hide button
         HBox passwordBox = new HBox(5);
         passwordBox.setAlignment(Pos.CENTER_LEFT);
 
@@ -217,14 +260,12 @@ public class MainApp extends Application {
         passwordField.setPrefWidth(165);
         passwordField.setPromptText("Enter password");
 
-        // TextField for showing password (hidden by default)
         passwordVisibleField = new TextField();
         passwordVisibleField.setPrefWidth(165);
         passwordVisibleField.setPromptText("Enter password");
         passwordVisibleField.setManaged(false);
         passwordVisibleField.setVisible(false);
 
-        // Bind text between fields
         passwordVisibleField.textProperty().bindBidirectional(passwordField.textProperty());
 
         // Toggle password visibility button (text version)
@@ -254,77 +295,8 @@ public class MainApp extends Application {
 
         connectButton = new Button("Connect");
         connectButton.setStyle("-fx-background-color: #4CAF50; -fx-text-fill: white; -fx-font-weight: bold;");
-        connectButton.setOnAction(e -> {
-            try {
-                String host = hostField.getText().trim();
-                if (host.isEmpty()) {
-                    showError("Input Error", "Router IP is required");
-                    return;
-                }
+        connectButton.setOnAction(e -> connect());
 
-                int port = 22;
-                if (!portField.getText().trim().isEmpty()) {
-                    port = Integer.parseInt(portField.getText().trim());
-                }
-
-                String username = usernameField.getText().trim();
-                if (username.isEmpty()) {
-                    username = "root";
-                }
-
-                String password = passwordField.getText();
-                if (password.isEmpty()) {
-                    showError("Input Error", "Password is required");
-                    return;
-                }
-
-                // Сохраняем данные для входа
-                saveCredentials();
-
-                connectButton.setDisable(true);
-                connectionStatus.setText("⏳ Connecting...");
-                connectionStatus.setTextFill(Color.ORANGE);
-                addLog("Connecting to " + host + ":" + port);
-
-                int finalPort = port;
-                String finalUsername = username;
-                new Thread(() -> {
-                    try {
-                        sshClient = new SSHClient(host, finalPort, finalUsername, password);
-                        sshClient.connect();
-                        service = new VpnConfigService(sshClient);
-
-                        Platform.runLater(() -> {
-                            connectionStatus.setText("✅ Connected to " + host);
-                            connectionStatus.setTextFill(Color.GREEN);
-                            connectButton.setText("Disconnect");
-                            connectButton.setOnAction(disconnectEvent -> disconnect());
-
-                            // Enable controls
-                            enableControls(true);
-
-                            // Load initial config
-                            loadConfig();
-                            addLog("Connected successfully");
-                        });
-                    } catch (Exception ex) {
-                        Platform.runLater(() -> {
-                            connectionStatus.setText("❌ Connection failed");
-                            connectionStatus.setTextFill(Color.RED);
-                            connectButton.setDisable(false);
-                            addLog("Connection failed: " + ex.getMessage());
-                            showError("Connection Error", ex.getMessage());
-                        });
-                    }
-                }).start();
-
-            } catch (Exception ex) {
-                showError("Input Error", "Invalid port number");
-                connectButton.setDisable(false);
-            }
-        });
-
-        // Add clear credentials button
         Button clearCredentialsButton = new Button("Clear Saved");
         clearCredentialsButton.setStyle("-fx-background-color: #f44336; -fx-text-fill: white; -fx-font-size: 11px;");
         clearCredentialsButton.setOnAction(e -> {
@@ -362,11 +334,103 @@ public class MainApp extends Application {
         return panel;
     }
 
+    private void connect() {
+        try {
+            String host = hostField.getText().trim();
+            if (host.isEmpty()) {
+                showError("Input Error", "Router IP is required");
+                return;
+            }
+
+            int port = 22;
+            if (!portField.getText().trim().isEmpty()) {
+                port = Integer.parseInt(portField.getText().trim());
+            }
+
+            String username = usernameField.getText().trim();
+            if (username.isEmpty()) {
+                username = "root";
+            }
+
+            String password = passwordField.getText();
+            if (password.isEmpty()) {
+                showError("Input Error", "Password is required");
+                return;
+            }
+
+            saveCredentials();
+
+            connectButton.setDisable(true);
+            connectionStatus.setText("⏳ Connecting...");
+            connectionStatus.setTextFill(Color.ORANGE);
+            addLog("Connecting to " + host + ":" + port);
+
+            int finalPort = port;
+            String finalUsername = username;
+            executor.submit(() -> {
+                try {
+                    sshClient = new SSHClient(host, finalPort, finalUsername, password);
+                    sshClient.connect();
+                    service = new VpnConfigService(sshClient);
+
+                    Platform.runLater(() -> {
+                        connectionStatus.setText("✅ Connected to " + host);
+                        connectionStatus.setTextFill(Color.GREEN);
+                        connectButton.setText("Disconnect");
+                        connectButton.setOnAction(disconnectEvent -> disconnect());
+
+                        enableControls(true);
+                        loadConfig();
+                        addLog("Connected successfully");
+                    });
+                } catch (Exception ex) {
+                    Platform.runLater(() -> {
+                        connectionStatus.setText("❌ Connection failed");
+                        connectionStatus.setTextFill(Color.RED);
+                        connectButton.setDisable(false);
+                        addLog("Connection failed: " + ex.getMessage());
+                        showError("Connection Error", ex.getMessage());
+                    });
+                }
+            });
+
+        } catch (Exception ex) {
+            showError("Input Error", "Invalid port number");
+            connectButton.setDisable(false);
+        }
+    }
+
+    private void disconnect() {
+        addLog("Disconnecting...");
+        connectButton.setDisable(true);
+
+        executor.submit(() -> {
+            try {
+                if (sshClient != null) {
+                    sshClient.close();
+                    addLog("SSH disconnected");
+                }
+            } catch (Exception e) {
+                addLog("Error during disconnect: " + e.getMessage());
+            } finally {
+                Platform.runLater(() -> {
+                    connectionStatus.setText("⏹ Disconnected");
+                    connectionStatus.setTextFill(Color.RED);
+                    connectButton.setText("Connect");
+                    connectButton.setDisable(false);
+                    connectButton.setOnAction(e -> connect());
+                    enableControls(false);
+                    clearLists();
+                    addLog("Disconnected");
+                });
+            }
+        });
+    }
+
     private HBox createListsPanel() {
         HBox panel = new HBox(20);
         panel.setPadding(new Insets(10));
 
-        // Auto domains panel
         VBox autoPanel = createListPanel("Auto-loaded Domains", "from /tmp/dnsmasq.d/domains.lst", true);
         autoDomainsList = new ListView<>();
         autoDomainsList.setPrefHeight(300);
@@ -374,7 +438,6 @@ public class MainApp extends Application {
         autoPanel.getChildren().add(autoDomainsList);
         VBox.setVgrow(autoDomainsList, Priority.ALWAYS);
 
-        // User domains panel
         VBox userDomainsPanel = createListPanel("User-added Domains", "from /etc/config/dhcp", false);
         userDomainsList = new ListView<>();
         userDomainsList.setPrefHeight(300);
@@ -383,7 +446,6 @@ public class MainApp extends Application {
         VBox.setVgrow(userDomainsList, Priority.ALWAYS);
         userDomainsPanel.getChildren().add(createUserDomainButtons());
 
-        // User IPs panel
         VBox userIpsPanel = createListPanel("User-added IPs", "from /etc/config/firewall", false);
         userIpsList = new ListView<>();
         userIpsList.setPrefHeight(300);
@@ -459,7 +521,6 @@ public class MainApp extends Application {
     private VBox createBottomPanel() {
         VBox panel = new VBox(5);
 
-        // Status bar
         HBox statusBar = new HBox(10);
         statusBar.setPadding(new Insets(10));
         statusBar.setStyle("-fx-border-color: #cccccc; -fx-border-width: 1; -fx-border-radius: 5;");
@@ -467,13 +528,11 @@ public class MainApp extends Application {
         statusLabel = new Label("Ready");
         statusLabel.setStyle("-fx-font-size: 12px;");
 
-        // Apply button
         applyButton = new Button("Apply Changes");
         applyButton.setStyle("-fx-background-color: #FF9800; -fx-text-fill: white; -fx-font-weight: bold;");
         applyButton.setOnAction(e -> applyChanges());
         applyButton.setDisable(true);
 
-        // Toggle logs button
         toggleLogsButton = new Button("▶ Show Logs");
         toggleLogsButton.setStyle("-fx-background-color: #607D8B; -fx-text-fill: white;");
         toggleLogsButton.setOnAction(e -> toggleLogs());
@@ -483,7 +542,6 @@ public class MainApp extends Application {
 
         statusBar.getChildren().addAll(statusLabel, spacer, applyButton, toggleLogsButton);
 
-        // Log area (hidden by default)
         logArea = new TextArea();
         logArea.setEditable(false);
         logArea.setStyle("-fx-font-family: monospace; -fx-font-size: 12px;");
@@ -506,7 +564,6 @@ public class MainApp extends Application {
         String timestamp = LocalDateTime.now().format(DATE_FORMATTER);
         Platform.runLater(() -> {
             logArea.appendText("[" + timestamp + "] " + message + "\n");
-            // Auto-scroll to bottom
             logArea.setScrollTop(Double.MAX_VALUE);
         });
     }
@@ -522,22 +579,6 @@ public class MainApp extends Application {
         }
     }
 
-    private void disconnect() {
-        if (sshClient != null) {
-            sshClient.close();
-        }
-        connectionStatus.setText("⏹ Disconnected");
-        connectionStatus.setTextFill(Color.RED);
-        connectButton.setText("Connect");
-        connectButton.setDisable(false);
-        connectButton.setOnAction(e -> {
-            // Reconnect logic will be handled by the button action
-        });
-        enableControls(false);
-        clearLists();
-        addLog("Disconnected");
-    }
-
     private void loadConfig() {
         if (service == null) {
             return;
@@ -547,11 +588,10 @@ public class MainApp extends Application {
         statusLabel.setTextFill(Color.ORANGE);
         addLog("Loading configuration...");
 
-        new Thread(() -> {
+        executor.submit(() -> {
             try {
                 currentConfig = service.loadConfig();
 
-                // Clear pending changes
                 pendingDomains.clear();
                 pendingIps.clear();
 
@@ -572,24 +612,21 @@ public class MainApp extends Application {
                     showError("Load Error", e.getMessage());
                 });
             }
-        }).start();
+        });
     }
 
     private void updateLists() {
         if (currentConfig == null) return;
 
-        // Auto domains
         autoDomainsList.getItems().clear();
         currentConfig.autoDomains().stream()
                 .map(VpnDomain::domain)
                 .forEach(autoDomainsList.getItems()::add);
 
-        // User domains - combine current config with pending changes
         List<String> allDomains = new ArrayList<>(currentConfig.userDomains().stream()
                 .map(VpnDomain::domain)
                 .toList());
 
-        // Apply pending changes visually
         for (String domain : pendingDomains) {
             if (!domain.startsWith("!") && !allDomains.contains(domain)) {
                 allDomains.add(domain);
@@ -599,7 +636,6 @@ public class MainApp extends Application {
         userDomainsList.getItems().clear();
         allDomains.forEach(userDomainsList.getItems()::add);
 
-        // User IPs - combine current config with pending changes
         List<String> allIps = new ArrayList<>(currentConfig.userIpEntries().stream()
                 .map(VpnIpEntry::ipOrNetwork)
                 .toList());
@@ -613,7 +649,6 @@ public class MainApp extends Application {
         userIpsList.getItems().clear();
         allIps.forEach(userIpsList.getItems()::add);
 
-        // Enable apply button if there are pending changes
         boolean hasPending = pendingDomains.stream().anyMatch(d -> !d.startsWith("!")) ||
                 pendingDomains.stream().anyMatch(d -> d.startsWith("!")) ||
                 pendingIps.stream().anyMatch(ip -> !ip.startsWith("!")) ||
@@ -652,13 +687,11 @@ public class MainApp extends Application {
 
             String cleanDomain = domain.trim().toLowerCase();
 
-            // Check if already in pending list
             if (pendingDomains.contains(cleanDomain)) {
                 showError("Duplicate", "Domain already added to pending list");
                 return;
             }
 
-            // Check if already in current config
             if (currentConfig != null && currentConfig.userDomains().stream()
                     .anyMatch(d -> d.domain().equalsIgnoreCase(cleanDomain))) {
                 showError("Duplicate", "Domain already exists in configuration");
@@ -680,7 +713,6 @@ public class MainApp extends Application {
             return;
         }
 
-        // Check if in pending list (added but not applied)
         if (pendingDomains.contains(selected)) {
             pendingDomains.remove(selected);
             addLog("Domain removed from pending: " + selected);
@@ -688,7 +720,6 @@ public class MainApp extends Application {
             return;
         }
 
-        // Check if marked for removal already
         String markForRemoval = "!" + selected;
         if (pendingDomains.contains(markForRemoval)) {
             pendingDomains.remove(markForRemoval);
@@ -704,7 +735,7 @@ public class MainApp extends Application {
 
         Optional<ButtonType> result = alert.showAndWait();
         if (result.isPresent() && result.get() == ButtonType.OK) {
-            pendingDomains.add("!" + selected); // Mark for removal
+            pendingDomains.add("!" + selected);
             addLog("Domain marked for removal: " + selected);
             statusLabel.setText("⏳ Pending: " + pendingDomains.size() + " domains, " + pendingIps.size() + " IPs");
             statusLabel.setTextFill(Color.ORANGE);
@@ -795,7 +826,6 @@ public class MainApp extends Application {
             return;
         }
 
-        // Count actual changes
         long addDomains = pendingDomains.stream().filter(d -> !d.startsWith("!")).count();
         long removeDomains = pendingDomains.stream().filter(d -> d.startsWith("!")).count();
         long addIps = pendingIps.stream().filter(ip -> !ip.startsWith("!")).count();
@@ -818,14 +848,12 @@ public class MainApp extends Application {
             statusLabel.setText("⏳ Applying changes...");
             statusLabel.setTextFill(Color.ORANGE);
             applyButton.setDisable(true);
-            addLog("Applying " + pendingDomains.size() + " domain and " + pendingIps.size() + " IP changes...");
+            addLog("Applying changes...");
 
-            new Thread(() -> {
+            executor.submit(() -> {
                 try {
-                    // Get current config
                     VpnConfig config = service.loadConfig();
 
-                    // Process pending changes
                     List<String> domains = new ArrayList<>(config.userDomains().stream()
                             .map(VpnDomain::domain)
                             .toList());
@@ -834,15 +862,12 @@ public class MainApp extends Application {
                             .map(VpnIpEntry::ipOrNetwork)
                             .toList());
 
-                    // Apply domain changes
                     for (String item : pendingDomains) {
                         if (item.startsWith("!")) {
-                            // Remove domain
                             String domain = item.substring(1);
                             domains.removeIf(d -> d.equalsIgnoreCase(domain));
                             addLog("Removed domain: " + domain);
                         } else {
-                            // Add domain
                             if (!domains.contains(item)) {
                                 domains.add(item);
                                 addLog("Added domain: " + item);
@@ -850,15 +875,12 @@ public class MainApp extends Application {
                         }
                     }
 
-                    // Apply IP changes
                     for (String item : pendingIps) {
                         if (item.startsWith("!")) {
-                            // Remove IP
                             String ip = item.substring(1);
                             ips.removeIf(i -> i.equals(ip));
                             addLog("Removed IP: " + ip);
                         } else {
-                            // Add IP
                             if (!ips.contains(item)) {
                                 ips.add(item);
                                 addLog("Added IP: " + item);
@@ -866,14 +888,12 @@ public class MainApp extends Application {
                         }
                     }
 
-                    // Apply to router
                     service.applyFullConfig(new VpnConfig(
                             config.autoDomains(),
                             domains.stream().map(d -> new VpnDomain(d, true)).toList(),
                             ips.stream().map(VpnIpEntry::new).toList()
                     ));
 
-                    // Clear pending changes
                     pendingDomains.clear();
                     pendingIps.clear();
 
@@ -881,7 +901,7 @@ public class MainApp extends Application {
                         statusLabel.setText("✅ Changes applied successfully!");
                         statusLabel.setTextFill(Color.GREEN);
                         addLog("Changes applied successfully");
-                        loadConfig(); // Reload to show final state
+                        loadConfig();
                     });
 
                 } catch (Exception e) {
@@ -893,7 +913,7 @@ public class MainApp extends Application {
                         showError("Apply Error", e.getMessage());
                     });
                 }
-            }).start();
+            });
         }
     }
 
