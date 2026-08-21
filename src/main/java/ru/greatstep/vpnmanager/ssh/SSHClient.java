@@ -7,7 +7,6 @@ import com.jcraft.jsch.Session;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
-import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
@@ -35,13 +34,34 @@ public class SSHClient implements AutoCloseable {
         session = jsch.getSession(username, host, port);
         session.setPassword(password);
 
+        // Включаем детальный лог для диагностики
+        JSch.setLogger(new com.jcraft.jsch.Logger() {
+            public boolean isEnabled(int level) { return true; }
+            public void log(int level, String message) {
+                System.out.println("JSch Log: " + message);
+            }
+        });
+
         java.util.Properties config = new java.util.Properties();
+
+        // Базовые настройки
         config.put("StrictHostKeyChecking", "no");
-        config.put("PreferredAuthentications", "password");
+        config.put("PreferredAuthentications", "password,keyboard-interactive");
+
+        // ЯВНО УКАЗЫВАЕМ АЛГОРИТМЫ ДЛЯ КЛЮЧА ХОСТА
+        config.put("server_host_key", "ssh-rsa,ssh-dss,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521");
+        config.put("kex", "diffie-hellman-group1-sha1,diffie-hellman-group14-sha1,diffie-hellman-group-exchange-sha1,diffie-hellman-group-exchange-sha256,ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521");
+
+        // Включаем поддержку старых алгоритмов шифрования, если это необходимо
+        config.put("cipher.s2c", "aes256-ctr,aes192-ctr,aes128-ctr,aes256-cbc,aes192-cbc,aes128-cbc,blowfish-cbc,3des-cbc");
+        config.put("cipher.c2s", "aes256-ctr,aes192-ctr,aes128-ctr,aes256-cbc,aes192-cbc,aes128-cbc,blowfish-cbc,3des-cbc");
+
         session.setConfig(config);
 
-        session.connect((int) Duration.ofSeconds(30).toMillis());
+        // Увеличиваем таймаут
+        session.connect(60000);
     }
+
 
     public boolean isConnected() {
         return session != null && session.isConnected();
