@@ -42,36 +42,37 @@ public class SSHClient implements AutoCloseable {
         config.put("StrictHostKeyChecking", "no");
         config.put("PreferredAuthentications", "password,keyboard-interactive");
 
-        // ---- РЕШЕНИЕ ПРОБЛЕМЫ "Algorithm negotiation fail" ----
-        // Ваш роутер использует ssh-ed25519, но проблема в Kex или Cipher
+        // ---- НАСТРОЙКИ ДЛЯ НОВОЙ БИБЛИОТЕКИ ----
+        // Новая библиотека поддерживает curve25519-sha256 по умолчанию,
+        // но добавим все алгоритмы для надежности
 
-        // 1. Алгоритмы обмена ключами (Kex) - добавляем все возможные
-        config.put("kex", "diffie-hellman-group-exchange-sha256," +
+        // 1. Алгоритмы обмена ключами (Kex) - добавляем curve25519
+        config.put("kex", "curve25519-sha256,curve25519-sha256@libssh.org," +
+                "diffie-hellman-group-exchange-sha256," +
                 "diffie-hellman-group-exchange-sha1," +
+                "diffie-hellman-group14-sha256," +
                 "diffie-hellman-group14-sha1," +
                 "diffie-hellman-group1-sha1," +
                 "ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521");
 
-        // 2. Алгоритмы шифрования (Cipher) - добавляем все возможные
+        // 2. Алгоритмы шифрования (Cipher)
         config.put("cipher.s2c", "aes256-ctr,aes192-ctr,aes128-ctr," +
                 "aes256-cbc,aes192-cbc,aes128-cbc," +
-                "blowfish-cbc,3des-cbc,arcfour128,arcfour256,arcfour");
+                "chacha20-poly1305@openssh.com");
         config.put("cipher.c2s", "aes256-ctr,aes192-ctr,aes128-ctr," +
                 "aes256-cbc,aes192-cbc,aes128-cbc," +
-                "blowfish-cbc,3des-cbc,arcfour128,arcfour256,arcfour");
+                "chacha20-poly1305@openssh.com");
 
         // 3. Алгоритмы MAC
-        config.put("mac.s2c", "hmac-sha2-256,hmac-sha2-512," +
-                "hmac-sha1,hmac-sha1-96,hmac-md5,hmac-md5-96");
-        config.put("mac.c2s", "hmac-sha2-256,hmac-sha2-512," +
-                "hmac-sha1,hmac-sha1-96,hmac-md5,hmac-md5-96");
+        config.put("mac.s2c", "hmac-sha2-256,hmac-sha2-512,hmac-sha1,hmac-sha1-96");
+        config.put("mac.c2s", "hmac-sha2-256,hmac-sha2-512,hmac-sha1,hmac-sha1-96");
 
-        // 4. Алгоритмы ключа хоста - оставляем все, включая ваш ed25519
+        // 4. Алгоритмы ключа хоста
         config.put("server_host_key", "ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,ssh-rsa,ssh-dss");
 
         session.setConfig(config);
 
-        // Увеличиваем таймаут
+        // Увеличиваем таймаут для медленных роутеров
         session.connect((int) Duration.ofSeconds(60).toMillis());
     }
 
