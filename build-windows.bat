@@ -26,7 +26,7 @@ for %%f in (target\*.jar) do (
 :found_jar
 echo Found JAR: !JAR_NAME!
 
-set VERSION=1.0.0
+set VERSION=1.1.0
 echo Version: %VERSION%
 
 echo Creating JRE with JavaFX modules...
