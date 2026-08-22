@@ -7,7 +7,7 @@
 
     <groupId>ru.greatstep</groupId>
     <artifactId>vpn-manager</artifactId>
-    <version>1.0.0</version>
+    <version>1.1.0</version>
     <packaging>jar</packaging>
 
     <properties>
@@ -17,7 +17,7 @@
         <javafx.version>21.0.1</javafx.version>
         <jsch.version>0.1.55</jsch.version>
         <slf4j.version>2.0.9</slf4j.version>
-        <app.version>1.0.0</app.version>
+        <app.version>1.1.0</app.version>
         <app.name>VPNManager</app.name>
         <app.vendor>GreatStep</app.vendor>
         <app.mainClass>ru.greatstep.vpnmanager.MainApp</app.mainClass>
