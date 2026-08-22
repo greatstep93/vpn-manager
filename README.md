@@ -27,18 +27,42 @@
 Так как все устройства кэшируют DNS запросы они не сразу понимают что надо сходить к роутеру и узнать как именно нужно ходить по тем или иным доменам. 
 Самый простой вариант это перезагрузить устройство, так же иногда помогает отключить-подключить сеть или войти/выйти из авиа режима чтобы сбросить DNS кэш на клиенте. 
 
-
-## Версия 1.0.0
 Написана на Java, UI на JavaFX
 
-Проверена и работает, написана при поддержке DeepSeek поэтому рефакторинг производить в следующих версиях при необходимости. 
+<details>
+    <summary>## Версия 1.1.0</summary>
+  
+    * рефакторинг
+    * исправлена кнопка Disconnect
+    * добавлен поиск
+    * изменены цвета для добавленных/удаленных доменов до того как изменения применены
+    * перенесена кнопка Refresh
+    * добавлена подсказка, когда есть не примененные изменения
+    * добавлена возможность отменить удаление доменов без Refresh по нажатию Cancel Remove
+    * добавлена возможность загружать домены/ip списком
+    * доавлена иконка для окон в windows/mac/ubuntu
+
+  <img width="1085" height="885" alt="image" src="https://github.com/user-attachments/assets/766b28d4-a43d-4295-8c92-c2323f6ab583" />
+
+</details>
+
+
+<details>
+    <summary>## Версия 1.0.0</summary>
+
+    * Проверен базовый функционал и все заработало на mac/ubuntu/windows
+    * Так как при написании использовался DeepSeek в дальнейшем будет много рефакторинга и расширение функционала
 
 <img width="992" height="698" alt="image" src="https://github.com/user-attachments/assets/74ef1043-3f4d-4ad0-be9a-3a82cd056441" />
 
+</details>
 
-На macos надо будет протыкать принудительный запуск
+<details>
+  <summary>На macos надо будет протыкать принудительный запуск</summary>
 
-<img width="540" height="520" alt="image" src="https://github.com/user-attachments/assets/9fa6bc72-5276-4a37-a238-21502e45ed4a" />
-<img width="1280" height="1190" alt="image" src="https://github.com/user-attachments/assets/78b53b3a-49c8-4e56-b1fa-2bec00ed4341" />
+  <img width="540" height="520" alt="image" src="https://github.com/user-attachments/assets/9fa6bc72-5276-4a37-a238-21502e45ed4a" />
+  <img width="1280" height="1190" alt="image" src="https://github.com/user-attachments/assets/78b53b3a-49c8-4e56-b1fa-2bec00ed4341" />
+  
+</details>
 
 
